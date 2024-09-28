@@ -1,0 +1,3 @@
+import pithermalcam as ptc
+
+ptc.display_camera_live()
