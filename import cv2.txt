@@ -1,0 +1,111 @@
+import cv2
+import math
+
+def calculate_alignment_angle(separation_mm, focal_distance_mm):
+    """
+    Calculate the target inward angle each camera should be adjusted to, in degrees.
+    
+    Parameters:
+    separation_mm (float): Distance between the two cameras in millimeters.
+    focal_distance_mm (float): Distance to the desired focal point in millimeters.
+    
+    Returns:
+    float: Target inward angle in degrees for each camera.
+    """
+    angle_rad = math.atan((separation_mm / 2) / focal_distance_mm)
+    angle_deg = math.degrees(angle_rad)
+    return angle_deg
+
+def capture_and_align(camera1_id, camera2_id, separation_mm, focal_distance_mm):
+    # Calculate target inward angle
+    target_angle = calculate_alignment_angle(separation_mm, focal_distance_mm)
+    print(f"Target inward angle for alignment: {target_angle:.2f} degrees")
+
+    # Open connections to both cameras
+    cap1 = cv2.VideoCapture(camera1_id)
+    cap2 = cv2.VideoCapture(camera2_id)
+
+    # Check if cameras opened successfully
+    if not (cap1.isOpened() and cap2.isOpened()):
+        print("Error: Could not open one or both cameras.")
+        return
+
+    while True:
+        # Capture frames from each camera
+        ret1, frame1 = cap1.read()
+        ret2, frame2 = cap2.read()
+
+        if not (ret1 and ret2):
+            print("Error: Could not read from one or both cameras.")
+            break
+
+        # Resize frames for side-by-side display if needed
+        frame1_resized = cv2.resize(frame1, (640, 480))
+        frame2_resized = cv2.resize(frame2, (640, 480))
+
+        # Find a reference point (e.g., a bright spot or specific marker)
+        point1 = find_reference_point(frame1_resized)
+        point2 = find_reference_point(frame2_resized)
+
+        # Calculate alignment error if reference points are found in both frames
+        if point1 and point2:
+            alignment_error = calculate_alignment_error(point1, point2, frame1_resized.shape[1])
+            alignment_text = f"Alignment Error: {alignment_error:.2f}° (Target: {target_angle:.2f}°)"
+            print(alignment_text)
+        else:
+            alignment_text = "Error: Could not find reference points in one or both frames."
+
+        # Draw reference points and alignment info
+        if point1:
+            cv2.circle(frame1_resized, point1, 5, (0, 255, 0), -1)
+        if point2:
+            cv2.circle(frame2_resized, point2, 5, (0, 255, 0), -1)
+
+        # Concatenate frames horizontally and add alignment text
+        combined_frame = cv2.hconcat([frame1_resized, frame2_resized])
+        cv2.putText(combined_frame, alignment_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+        # Display the combined frame
+        cv2.imshow("Camera Feeds", combined_frame)
+
+        # Exit loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Release the camera resources and close windows
+    cap1.release()
+    cap2.release()
+    cv2.destroyAllWindows()
+
+def find_reference_point(frame):
+    # Convert to grayscale for simplicity
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Use blob detection or feature detection to find a distinct point in the frame
+    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if contours:
+        # Find the largest contour, assuming it's our reference point
+        c = max(contours, key=cv2.contourArea)
+        M = cv2.moments(c)
+        if M["m00"] != 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            return (cx, cy)  # Return the (x, y) position of the reference point
+    return None
+
+def calculate_alignment_error(point1, point2, frame_width):
+    # Calculate the alignment error in pixels
+    error_x = point1[0] - point2[0]
+    # Convert pixel difference to angle based on field of view and frame width
+    angle_error = (error_x / frame_width) * 55  # Assuming 55° field of view
+    return angle_error
+
+# Example usage
+camera1_id = 0  # First camera
+camera2_id = 1  # Second camera
+separation_mm = 10  # Separation between cameras in mm
+focal_distance_mm = 500  # Desired distance to focal point in mm
+
+capture_and_align(camera1_id, camera2_id, separation_mm, focal_distance_mm)
